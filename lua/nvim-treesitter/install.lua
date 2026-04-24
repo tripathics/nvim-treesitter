@@ -233,64 +233,88 @@ local function do_download(logger, url, project_name, cache_dir, revision, outpu
 
   local tarball_path = fs.joinpath(cache_dir, project_name .. '.tar.gz')
 
-  do -- Download tarball
-    logger:info('Downloading %s...', project_name)
-    local r = system({
-      'curl',
-      '--silent',
-      '--fail',
-      '--show-error',
-      '--retry',
-      '7',
-      '-L', -- follow redirects
-      target,
-      '--output',
-      tarball_path,
-    })
-    if r.code > 0 then
-      return logger:error('Error during download: %s', r.stderr)
+  if config.prefer_git() then
+    do
+      logger:info('Cloning %s...', url)
+      local r = system({
+        'git',
+        'clone',
+        url,
+        '--depth=1',
+        tmp,
+      })
+      if r.code > 0 then
+        return logger:error('Error during clone: %s', r.stderr)
+      end
     end
-  end
-
-  do -- Create tmp dir
-    logger:debug('Creating temporary directory: %s', tmp)
-    local err = mkpath(tmp)
-    a.schedule()
-    if err then
-      return logger:error('Could not create %s-tmp: %s', project_name, err)
+  else
+    do -- Download tarball
+      logger:info('Downloading %s...', project_name)
+      local r = system({
+        'curl',
+        '--silent',
+        '--fail',
+        '--show-error',
+        '--retry',
+        '7',
+        '-L', -- follow redirects
+        target,
+        '--output',
+        tarball_path,
+      })
+      if r.code > 0 then
+        return logger:error('Error during download: %s', r.stderr)
+      end
     end
-  end
 
-  do -- Extract tarball
-    logger:debug('Extracting %s into %s...', tarball_path, project_name)
-    -- Windows tar can't handle drive letters
-    local r = system(
-      { 'tar', '-xzf', project_name .. '.tar.gz', '-C', project_name .. '-tmp' },
-      { cwd = cache_dir }
-    )
-    if r.code > 0 then
-      return logger:error('Error during tarball extraction: %s', r.stderr)
+    do -- Create tmp dir
+      logger:debug('Creating temporary directory: %s', tmp)
+      local err = mkpath(tmp)
+      a.schedule()
+      if err then
+        return logger:error('Could not create %s-tmp: %s', project_name, err)
+      end
     end
-  end
 
-  do -- Remove tarball
-    logger:debug('Removing %s...', tarball_path)
-    local err = uv_unlink(tarball_path)
-    a.schedule()
-    if err then
-      return logger:error('Could not remove tarball: %s', err)
+    do -- Extract tarball
+      logger:debug('Extracting %s into %s...', tarball_path, project_name)
+      -- Windows tar can't handle drive letters
+      local r = system(
+        { 'tar', '-xzf', project_name .. '.tar.gz', '-C', project_name .. '-tmp' },
+        { cwd = cache_dir }
+      )
+      if r.code > 0 then
+        return logger:error('Error during tarball extraction: %s', r.stderr)
+      end
+    end
+    do -- Remove tarball
+      logger:debug('Removing %s...', tarball_path)
+      local err = uv_unlink(tarball_path)
+      a.schedule()
+      if err then
+        return logger:error('Could not remove tarball: %s', err)
+      end
     end
   end
 
   do -- Move tmp dir to output dir
-    local dir_rev = revision:find('^v%d') and revision:sub(2) or revision
-    local repo_project_name = url:match('[^/]-$')
-    local extracted = fs.joinpath(tmp, repo_project_name .. '-' .. dir_rev)
-    logger:debug('Moving %s to %s/...', extracted, output_dir)
-    local err = uv_rename(extracted, output_dir)
-    a.schedule()
-    if err then
-      return logger:error('Could not rename temp: %s', err)
+    if config.prefer_git() then
+      logger:debug('Moving %s to %s/...', tmp, output_dir)
+      local err = uv_rename(tmp, output_dir)
+      a.schedule()
+      if err then
+        return logger:error('Could not rename temp: %s', err)
+      end
+    else
+      local dir_rev = revision:find('^v%d') and revision:sub(2) or revision
+      local repo_project_name = url:match('[^/]-$')
+      local extracted = fs.joinpath(tmp, repo_project_name .. '-' .. dir_rev)
+      logger:debug('Moving %s to %s/...', extracted, output_dir)
+      local err = uv_rename(extracted, output_dir)
+      a.schedule()
+      if err then
+        return logger:error('Could not rename temp: %s', err)
+      end
     end
   end
 

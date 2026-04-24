@@ -4,6 +4,7 @@ M.tiers = { 'stable', 'unstable', 'unmaintained', 'unsupported' }
 
 ---@class TSConfig
 ---@field install_dir string
+---@field prefer_git ? boolean
 
 ---@type TSConfig
 local config = {
@@ -169,6 +170,10 @@ function M.norm_languages(languages, skip)
   end
 
   return vim.list.unique(languages)
+end
+
+function M.prefer_git()
+  return config.prefer_git or false
 end
 
 return M
